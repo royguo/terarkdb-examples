@@ -221,6 +221,9 @@ namespace terark { namespace db {
 
 		int compareData(fstring x, fstring y) const;
 
+		typedef int (*OneColumnComparator)(fstring, fstring);
+		OneColumnComparator getOneColumnComparator(bool ascending = true) const;
+
 		// used by glibc.qsort_r or msvc.qsort_s
 		struct CompareByIndexContext {
 			const Schema* schema;
@@ -448,6 +451,7 @@ namespace terark { namespace db {
 		};
 		SchemaPtr      m_rowSchema;
 		SchemaPtr      m_wrtSchema;
+		SchemaPtr      m_snapshotSchema;
 		SchemaSetPtr   m_indexSchemaSet;
 		SchemaSetPtr   m_colgroupSchemaSet;
 		valvec<size_t> m_uniqIndices;
@@ -458,9 +462,11 @@ namespace terark { namespace db {
 		llong    m_compressingWorkMemSize;
 		llong    m_maxWritingSegmentSize;
 		size_t   m_minMergeSegNum;
+		size_t   m_bestUniqueIndexId;
 		double   m_purgeDeleteThreshold;
 		std::string m_tableClass;
 		bool     m_usePermanentRecordId;
+		bool     m_enableSnapshot;
 
 		SchemaConfig();
 		~SchemaConfig();

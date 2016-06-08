@@ -37,12 +37,28 @@ void test_update_data(const char* dbtable) {
     // non-inplace update
     // 1. this table can only have one unqiue column
     // 2. new data will be inserted into writable segment and old data will be marked as deleted
-    id = 140;
+    test_ns::User u;
+    id = 150;
     key = terark::db::Schema::fstringOf(&id);
     ctx->indexSearchExact(idIndexId, key, &recIdvec);
     for(auto recId : recIdvec) {
-        uint8_t age = 101;
-//        tab->upsertRow(<#fstring row#>, ctx.get());
+        // 1. Find old row
+        terark::valvec<terark::byte> rowVal;
+        ctx->getValue(recId, &rowVal);
+        printf("%s\n", tab->rowSchema().toJsonStr(rowVal).c_str());
+        
+        // 2. Update old row
+        // 2.1. deserialize
+        u.decode(rowVal);
+        u.age = u.age + 3;
+        u.email = "terark@terark.com";
+        // 2.2. update
+        terark::NativeDataOutput<terark::AutoGrownMemIO> rowBuilder;
+        ctx->upsertRow(u.encode(rowBuilder));
+        
+        // 3. print result
+        ctx->getValue(recId, &rowVal);
+        printf("%s\n", tab->rowSchema().toJsonStr(rowVal).c_str());
     }
     
     // close table

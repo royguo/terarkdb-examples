@@ -52,7 +52,7 @@ protected:
 	llong overwriteExisting(fstring row);
 	llong upsertRowImpl(fstring row);
 public:
-	explicit BatchWriter(CompositeTable* tab, DbContext* ctx = NULL);
+	explicit BatchWriter(DbTable* tab, DbContext* ctx = NULL);
 	~BatchWriter();
 	DbContext* getCtx() const { return m_ctx.get(); }
 	const std::string& strError() const;
@@ -64,25 +64,25 @@ public:
 };
 
 // is not a WritableStore
-class TERARK_DB_DLL CompositeTable : public ReadableStore {
+class TERARK_DB_DLL DbTable : public ReadableStore {
 	friend class BatchWriter;
 	class MyStoreIterBase;	    friend class MyStoreIterBase;
 	class MyStoreIterForward;	friend class MyStoreIterForward;
 	class MyStoreIterBackward;	friend class MyStoreIterBackward;
 public:
-	CompositeTable();
-	~CompositeTable();
+	DbTable();
+	~DbTable();
 
 	struct RegisterTableClass {
-		RegisterTableClass(fstring clazz, const std::function<CompositeTable*()>& f);
+		RegisterTableClass(fstring clazz, const std::function<DbTable*()>& f);
 	};
 #define TERARK_DB_REGISTER_TABLE_CLASS(TableClass) \
-	static CompositeTable::RegisterTableClass \
+	static DbTable::RegisterTableClass \
 		regTable_##TableClass(#TableClass, [](){ return new TableClass(); });
 
-	static CompositeTable* createTable(fstring tableClass);
+	static DbTable* createTable(fstring tableClass);
 
-	static CompositeTable* open(PathRef dbPath);
+	static DbTable* open(PathRef dbPath);
 
 	void load(PathRef dir) override;
 	void save(PathRef dir) const override;
@@ -250,7 +250,7 @@ public:
 	static void safeStopAndWaitForCompress();
 
 protected:
-	static void registerTableClass(fstring tableClass, std::function<CompositeTable*()> tableFactory);
+	static void registerTableClass(fstring tableClass, std::function<DbTable*()> tableFactory);
 
 	void doLoad(PathRef dir);
 
@@ -313,6 +313,7 @@ protected:
 	size_t m_bgTaskNum;
 	size_t m_segArrayUpdateSeq;
 	llong  m_rowNum;
+	llong  m_oldestSnapshotVersion;
 	bool m_tobeDrop;
 	bool m_isMerging;
 	PurgeStatus m_purgeStatus;
@@ -325,7 +326,9 @@ protected:
 	friend class DbContext;
 	friend class ReadonlySegment;
 };
-typedef boost::intrusive_ptr<CompositeTable> CompositeTablePtr;
+typedef boost::intrusive_ptr<DbTable> DbTablePtr;
+typedef DbTable    CompositeTable; // for compatible
+typedef DbTablePtr CompositeTablePtr; // for compatible
 
 /////////////////////////////////////////////////////////////////////////////
 
@@ -470,7 +473,7 @@ ReadableSegment* DbContext::getSegmentPtr(size_t segIdx) const {
 }
 
 inline
-void DbContext::trySyncSegCtxNoLock(const CompositeTable* tab) {
+void DbContext::trySyncSegCtxNoLock(const DbTable* tab) {
 	if (this->segArrayUpdateSeq != tab->m_segArrayUpdateSeq) {
 		assert(this->segArrayUpdateSeq < tab->m_segArrayUpdateSeq);
 		this->doSyncSegCtxNoLock(tab);
@@ -482,12 +485,16 @@ void DbContext::trySyncSegCtxNoLock(const CompositeTable* tab) {
 		assert(m_segCtx.size() == tab->m_segments.size());
 		assert(m_rowNumVec.size() == tab->m_segments.size()+1);
 		assert(m_rowNumVec.size() == tab->m_rowNumVec.size());
-		m_rowNumVec.back() = tab->m_rowNum;
+		llong rowNum = tab->m_rowNum;
+		if (!m_isUserDefineSnapshot) {
+			m_mySnapshotVersion = rowNum - 1;
+		}
+		m_rowNumVec.back() = rowNum;
 	}
 }
 
 inline
-void DbContext::trySyncSegCtxSpeculativeLock(const CompositeTable* tab) {
+void DbContext::trySyncSegCtxSpeculativeLock(const DbTable* tab) {
 	if (this->segArrayUpdateSeq != tab->m_segArrayUpdateSeq) {
 		assert(this->segArrayUpdateSeq < tab->m_segArrayUpdateSeq);
 		MyRwLock lock(tab->m_rwMutex, false);
@@ -497,7 +504,11 @@ void DbContext::trySyncSegCtxSpeculativeLock(const CompositeTable* tab) {
 		assert(m_rowNumVec.size() == tab->m_rowNumVec.size());
 	}
 	else {
-		m_rowNumVec.back() = tab->m_rowNum;
+		llong rowNum = tab->m_rowNum;
+		if (!m_isUserDefineSnapshot) {
+			m_mySnapshotVersion = rowNum - 1;
+		}
+		m_rowNumVec.back() = rowNum;
 	}
 }
 
